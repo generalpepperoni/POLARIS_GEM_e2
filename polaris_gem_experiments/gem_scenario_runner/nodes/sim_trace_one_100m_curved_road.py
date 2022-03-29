@@ -200,7 +200,7 @@ def main() -> None:
     out_dir = rospy.get_param("~out_dir", "")  # file path
     fields = rospy.get_param("~fields")
     truth_list = rospy.get_param("~truth_list", [])
-    max_trace_len = rospy.get_param("~max_trace_len", 50)
+    max_trace_len = rospy.get_param("~max_trace_len")
 
     if "truth" not in fields or fields["truth"] != ["cte", "psi"]:
         raise ValueError("Unsupported field declaration %s" % fields)
