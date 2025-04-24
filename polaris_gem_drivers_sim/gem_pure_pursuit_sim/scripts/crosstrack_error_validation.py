@@ -1,4 +1,13 @@
 #!/usr/bin/env python3
+"""
+Cross-Track Error (CTE) Data Collector for POLARIS_GEM_e2 ROS simulator.
+Original simulator developed by Center for Autonomy at University of Illinois at Urbana-Champaign
+
+This ROS node subscribes to cross-track error messages from the GEM vehicle simulation,
+collects data for a specified duration, calculates the average error, and optionally
+persists the results to a .csv and log files.
+"""
+
 import os
 import argparse
 from datetime import datetime
@@ -9,7 +18,28 @@ from std_msgs.msg import Float32, Header
 
 
 class CTDataCollector():
+    """Collects and processes cross-track error data from GEM vehicle simulation.
+
+    Attributes:
+        duration (rospy.Duration)     : Duration for data collection in seconds
+        start_time (rospy.Time)       : Timestamp of first received message
+        latest_header (Header)        : Most recent header message received
+        complete_flag (bool)          : Indicates if collection period is complete
+        persist_flag (bool)           : Flag to enable persisting data to disk
+        cte_list (List[Dict])         : Collected cross-track error data
+        avg_pub (rospy.Publisher)     : Publisher for average CTE
+        header_sub (rospy.Subscriber) : Subscriber for header messages
+        error_sub (rospy.Subscriber)  : Subscriber for CT error messages
+    """
+
     def __init__(self, dur: int = 60, persist: bool = False):
+        """Initialize the CTDataCollector instance.
+
+        Args:
+            dur     : Collection duration in seconds (default: 60)
+            persist : Whether to persist data to disk (default: False)
+        """
+
         # Class variables init
         self.duration = rospy.Duration(dur)
         self.start_time = None
@@ -41,12 +71,26 @@ class CTDataCollector():
         rospy.loginfo("CTE Subscribers initialized")
 
     def header_callback(self, msg):
+        """Callback for header CT error messages to track message sequence and timing.
+
+        Args:
+            msg: Header message containing timestamp and sequence number
+        """
+
         self.latest_header = msg
         if self.start_time is None:
             self.start_time = msg.stamp
             rospy.loginfo(f"CT error collection started at sim time: {self.start_time.to_sec():.4f}")
 
-    def ct_callback(self, msg):
+    def ct_callback(self, msg: Float32):
+        """Main callback for cross-track error messages.
+
+        Collects error data and stops collection when duration is reached.
+
+        Args:
+            msg: Float32 message containing the cross-track error value
+        """
+
         if self.complete_flag:
             return
 
@@ -75,7 +119,11 @@ class CTDataCollector():
             rospy.signal_shutdown("OK")
 
     def calc_publish_average(self, persist: bool = False):
-        """Publish the average CTE before ros shutdown"""
+        """Calculate and publish the average cross-track error.
+
+        Args:
+            persist: Whether to save the average to a log file (default: False)
+        """
         try:
             avg_error = sum(row['ct_error'] for row in self.cte_list) / len(self.cte_list)
             avg_error_float = Float32(avg_error)
@@ -93,14 +141,25 @@ class CTDataCollector():
         except rospy.ROSInterruptException:
             pass
 
-    def get_cte_data(self):
+    def get_cte_data(self) -> List[Dict]:
+        """Get the collected cross-track error data.
+
+        Returns:
+            List of dictionaries containing all collected CTE data points
+        """
         return self.cte_list
 
 
 def write_dicts_to_csv(
         data: List[Dict],
         filename: str = "/tmp/ros_gem_ct_errors.csv"
-):
+) -> None:
+    """Write a list of dictionaries to a CSV file.
+
+    Args:
+        data: List of dictionaries to write
+        filename: Path to output CSV file (default: '/tmp/ros_gem_ct_errors.csv')
+    """
     import csv
 
     if not data:
@@ -115,6 +174,7 @@ def write_dicts_to_csv(
 
 
 if __name__ == "__main__":
+    # Parse CLI arguments
     parser = argparse.ArgumentParser(description='Crosstrack error validation script')
     parser.add_argument('-p', '--persist', action='store_true', help='Save .csv results to filesystem')
     parser.add_argument('-f', '--file', default='/tmp/ros_gem_ct_errors.csv', type=str, help='Output file')
