@@ -31,15 +31,21 @@ from tf.transformations import euler_from_quaternion, quaternion_from_euler
 from gazebo_msgs.srv import GetModelState
 from gazebo_msgs.msg import ModelState
 
+# ROS msg Headers
+from std_msgs.msg import Float32, Header
+
+
 class PurePursuit(object):
     
     def __init__(self):
 
-        self.rate       = rospy.Rate(20)
+        # 10 Hz rate slightly improve performance on ubuntu2004
+        self.rate = rospy.Rate(10)
 
         self.look_ahead = 6    # meters
         self.wheelbase  = 1.75 # meters
         self.goal       = 0
+        self.seq        = 0    # for metrics rostopic
 
         self.read_waypoints() # read waypoints
 
@@ -51,7 +57,9 @@ class PurePursuit(object):
         self.ackermann_msg.steering_angle          = 0.0
 
         self.ackermann_pub = rospy.Publisher('/gem/ackermann_cmd', AckermannDrive, queue_size=1)
-
+        # Metrics publisher for Crosstrack error, in meters (Float32) and
+        self.ct_error_pub = rospy.Publisher('/gem/metrics/ct_error', Float32, queue_size=10)
+        self.ct_header_pub = rospy.Publisher('/gem/metrics/ct_error_header', Header, queue_size=10)
 
     # import waypoints.csv into a list (path_points)
     def read_waypoints(self):
@@ -129,7 +137,8 @@ class PurePursuit(object):
             # true look-ahead distance between a waypoint and current position
             L = self.dist_arr[self.goal]
 
-            # transforming the goal point into the vehicle coordinate frame 
+            # TODO: gvcx, gvcy, goal_{x,y}_veh_coord unused in vanilla sim script
+            # transforming the goal point into the vehicle coordinate frame
             gvcx = self.path_points_x[self.goal] - curr_x
             gvcy = self.path_points_y[self.goal] - curr_y
             goal_x_veh_coord = gvcx*np.cos(curr_yaw) + gvcy*np.sin(curr_yaw)
@@ -144,13 +153,23 @@ class PurePursuit(object):
 
             ct_error = round(np.sin(alpha) * L, 3)
 
-            print("Crosstrack Error: " + str(ct_error))
+            # publish crosstrack error data and topic
+            ct_header = Header(
+                stamp=rospy.Time.now(),
+                frame_id=f'ct_err:{ct_error}',
+                seq=self.seq,
+            )
+            self.ct_error_pub.publish(Float32(ct_error))
+            self.ct_header_pub.publish(ct_header)
+
+            rospy.loginfo(f'Crosstrack error: {ct_error} at:\n{ct_header}')
 
             # implement constant pure pursuit controller
             self.ackermann_msg.speed          = 2.8
             self.ackermann_msg.steering_angle = angle
             self.ackermann_pub.publish(self.ackermann_msg)
 
+            self.seq += 1
             self.rate.sleep()
 
 def pure_pursuit():
